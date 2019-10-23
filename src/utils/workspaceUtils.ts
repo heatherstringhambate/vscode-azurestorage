@@ -3,9 +3,9 @@
  *  Licensed under the MIT License. See License.md in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { IActionContext, registerCommand } from 'vscode-azureextensionui';
-import { FileTreeItem } from './fileNode';
+import * as vscode from 'vscode';
 
-export function registerFileActionHandlers(): void {
-    registerCommand("azureStorage.deleteFile", async (context: IActionContext, treeItem: FileTreeItem) => await treeItem.deleteTreeItem(context));
+export function getSingleRootWorkspace(): vscode.WorkspaceFolder | undefined {
+    // if this is a multi-root workspace, return undefined
+    return vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length === 1 ? vscode.workspace.workspaceFolders[0] : undefined;
 }

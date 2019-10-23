@@ -4,11 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as azureStorage from "azure-storage";
-import * as clipboardy from 'clipboardy';
 import * as path from 'path';
-import { Uri, window } from 'vscode';
-import { AzureParentTreeItem, DialogResponses, UserCancelledError } from 'vscode-azureextensionui';
-import { resourcesPath } from "../../constants";
+import { Uri, window, workspace } from 'vscode';
+import * as vscode from 'vscode';
+import { AzExtTreeItem, AzureParentTreeItem, DialogResponses, GenericTreeItem, IActionContext, ICreateChildImplContext, UserCancelledError } from 'vscode-azureextensionui';
+import { configurationSettingsKeys, extensionPrefix, getResourcesPath } from "../../constants";
 import { ext } from "../../extensionVariables";
 import { ICopyUrl } from '../../ICopyUrl';
 import { IStorageRoot } from "../IStorageRoot";
@@ -19,6 +19,7 @@ import { askAndCreateEmptyTextFile } from './fileUtils';
 
 export class FileShareTreeItem extends AzureParentTreeItem<IStorageRoot> implements ICopyUrl {
     private _continuationToken: azureStorage.common.ContinuationToken | undefined;
+    private _openInFileExplorerString: string = 'Open in File Explorer...';
 
     constructor(
         parent: AzureParentTreeItem,
@@ -30,36 +31,58 @@ export class FileShareTreeItem extends AzureParentTreeItem<IStorageRoot> impleme
     public static contextValue: string = 'azureFileShare';
     public contextValue: string = FileShareTreeItem.contextValue;
     public iconPath: { light: string | Uri; dark: string | Uri } = {
-        light: path.join(resourcesPath, 'light', 'AzureFileShare.svg'),
-        dark: path.join(resourcesPath, 'dark', 'AzureFileShare.svg')
+        light: path.join(getResourcesPath(), 'light', 'AzureFileShare.svg'),
+        dark: path.join(getResourcesPath(), 'dark', 'AzureFileShare.svg')
     };
 
     hasMoreChildrenImpl(): boolean {
         return !!this._continuationToken;
     }
 
-    async loadMoreChildrenImpl(clearCache: boolean): Promise<(DirectoryTreeItem | FileTreeItem)[]> {
+    async loadMoreChildrenImpl(clearCache: boolean): Promise<(AzExtTreeItem)[]> {
+        const result: AzExtTreeItem[] = [];
+
         if (clearCache) {
             this._continuationToken = undefined;
+            // tslint:disable-next-line: strict-boolean-expressions
+            if (workspace.getConfiguration(extensionPrefix).get(configurationSettingsKeys.enableViewInFileExplorer)) {
+                const ti = new GenericTreeItem(this, {
+                    label: this._openInFileExplorerString,
+                    commandId: 'azureStorage.openFileShareInFileExplorer',
+                    contextValue: 'openFileShareInFileExplorer'
+                });
+
+                ti.commandArgs = [this];
+                result.push(ti);
+            }
         }
 
         // currentToken argument typed incorrectly in SDK
         let fileResults = await this.listFiles(<azureStorage.common.ContinuationToken>this._continuationToken);
         let { entries, continuationToken } = fileResults;
         this._continuationToken = continuationToken;
-        return (<(DirectoryTreeItem | FileTreeItem)[]>[])
-            .concat(entries.directories.map((directory: azureStorage.FileService.DirectoryResult) => {
-                return new DirectoryTreeItem(this, '', directory, this.share);
-            }))
+        return result.concat(entries.directories.map((directory: azureStorage.FileService.DirectoryResult) => {
+            return new DirectoryTreeItem(this, '', directory, this.share);
+        }))
             .concat(entries.files.map((file: azureStorage.FileService.FileResult) => {
                 return new FileTreeItem(this, file, '', this.share);
             }));
     }
 
+    public compareChildrenImpl(ti1: FileShareTreeItem, ti2: FileShareTreeItem): number {
+        if (ti1.label === this._openInFileExplorerString) {
+            return -1;
+        } else if (ti2.label === this._openInFileExplorerString) {
+            return 1;
+        }
+
+        return ti1.label.localeCompare(ti2.label);
+    }
+
     public async copyUrl(): Promise<void> {
         let fileService = this.root.createFileService();
         let url = fileService.getUrl(this.share.name, "");
-        await clipboardy.write(url);
+        await vscode.env.clipboard.writeText(url);
         ext.outputChannel.show();
         ext.outputChannel.appendLine(`Share URL copied to clipboard: ${url}`);
     }
@@ -95,11 +118,16 @@ export class FileShareTreeItem extends AzureParentTreeItem<IStorageRoot> impleme
         }
     }
 
-    public async createChildImpl(showCreatingTreeItem: (label: string) => void, userOptions?: {}): Promise<DirectoryTreeItem | FileTreeItem> {
-        if (userOptions === FileTreeItem.contextValue) {
-            return askAndCreateEmptyTextFile(this, '', this.share, showCreatingTreeItem);
+    public async createChildImpl(context: ICreateChildImplContext & IFileShareCreateChildContext): Promise<DirectoryTreeItem | FileTreeItem> {
+        if (context.childType === FileTreeItem.contextValue) {
+            return askAndCreateEmptyTextFile(this, '', this.share, context);
         } else {
-            return askAndCreateChildDirectory(this, '', this.share, showCreatingTreeItem);
+            return askAndCreateChildDirectory(this, '', this.share, context);
         }
     }
+}
+
+export interface IFileShareCreateChildContext extends IActionContext {
+    childType: string;
+    childName?: string;
 }

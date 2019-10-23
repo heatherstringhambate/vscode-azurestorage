@@ -7,21 +7,19 @@
 import { StorageManagementClient } from 'azure-arm-storage';
 import { StorageAccount } from 'azure-arm-storage/lib/models';
 import * as vscode from 'vscode';
-import { AzureTreeItem, AzureWizard, createAzureClient, createTreeItemsWithErrorHandling, IActionContext, IStorageAccountWizardContext, ISubscriptionRoot, LocationListStep, ResourceGroupListStep, StorageAccountKind, StorageAccountPerformance, StorageAccountReplication, SubscriptionTreeItem } from 'vscode-azureextensionui';
+import { AzExtTreeItem, AzureTreeItem, AzureWizard, createAzureClient, ICreateChildImplContext, IStorageAccountWizardContext, LocationListStep, ResourceGroupListStep, StorageAccountKind, StorageAccountPerformance, StorageAccountReplication, SubscriptionTreeItemBase } from 'vscode-azureextensionui';
 import { nonNull, StorageAccountWrapper } from '../components/storageWrappers';
 import { StorageAccountTreeItem } from './storageAccounts/storageAccountNode';
 import { StorageAccountCreateStep } from './wizard/storageAccountCreateStep';
 import { StorageAccountNameStep } from './wizard/storageAccountNameStep';
 
-export class StorageAccountProvider extends SubscriptionTreeItem {
+export class SubscriptionTreeItem extends SubscriptionTreeItemBase {
     public childTypeLabel: string = "Storage Account";
 
-    async loadMoreChildrenImpl(_clearCache: boolean): Promise<AzureTreeItem[]> {
+    async loadMoreChildrenImpl(_clearCache: boolean): Promise<AzExtTreeItem[]> {
         let storageManagementClient = createAzureClient(this.root, StorageManagementClient);
-
         let accounts = await storageManagementClient.storageAccounts.list();
-        return createTreeItemsWithErrorHandling(
-            this,
+        return this.createTreeItemsWithErrorHandling(
             accounts,
             'invalidStorageAccount',
             async (sa: StorageAccount) => await StorageAccountTreeItem.createStorageAccountTreeItem(this, new StorageAccountWrapper(sa), storageManagementClient),
@@ -31,22 +29,22 @@ export class StorageAccountProvider extends SubscriptionTreeItem {
         );
     }
 
-    // Default value for actionContext stems from https://github.com/Microsoft/vscode-azuretools/issues/120
-    public async createChildImpl(showCreatingTreeItem: (label: string) => void, _userOptions: Object, actionContext: IActionContext = <IActionContext>{ properties: {}, measurements: {} }): Promise<AzureTreeItem<ISubscriptionRoot>> {
+    public async createChildImpl(context: ICreateChildImplContext): Promise<AzureTreeItem> {
         let storageManagementClient = createAzureClient(this.root, StorageManagementClient);
-        const wizardContext: IStorageAccountWizardContext = Object.assign({}, this.root);
+        const wizardContext: IStorageAccountWizardContext = Object.assign(context, this.root);
 
-        const wizard = new AzureWizard(
-            [new StorageAccountNameStep(), new ResourceGroupListStep(), new LocationListStep()],
-            [new StorageAccountCreateStep({ kind: StorageAccountKind.StorageV2, performance: StorageAccountPerformance.Standard, replication: StorageAccountReplication.LRS })],
-            wizardContext);
+        const wizard = new AzureWizard(wizardContext, {
+            title: "Create storage account",
+            promptSteps: [new StorageAccountNameStep(), new ResourceGroupListStep(), new LocationListStep()],
+            executeSteps: [new StorageAccountCreateStep({ kind: StorageAccountKind.StorageV2, performance: StorageAccountPerformance.Standard, replication: StorageAccountReplication.LRS })],
+        });
 
-        await wizard.prompt(actionContext);
+        await wizard.prompt();
 
         await vscode.window.withProgress({ location: vscode.ProgressLocation.Window }, async (progress) => {
-            showCreatingTreeItem(nonNull(wizardContext.newStorageAccountName));
+            context.showCreatingTreeItem(nonNull(wizardContext.newStorageAccountName));
             progress.report({ message: `Creating storage account '${wizardContext.newStorageAccountName}'` });
-            await wizard.execute(actionContext);
+            await wizard.execute();
         });
         return await StorageAccountTreeItem.createStorageAccountTreeItem(this, new StorageAccountWrapper(<StorageAccount>nonNull(wizardContext.storageAccount)), storageManagementClient);
     }

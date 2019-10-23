@@ -7,8 +7,9 @@ import * as azureStorage from "azure-storage";
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { Uri } from 'vscode';
-import { AzureParentTreeItem, UserCancelledError } from 'vscode-azureextensionui';
-import { resourcesPath } from "../../constants";
+import { AzExtTreeItem, AzureParentTreeItem, ICreateChildImplContext, UserCancelledError } from 'vscode-azureextensionui';
+import { getResourcesPath } from "../../constants";
+import { ext } from "../../extensionVariables";
 import { IStorageRoot } from "../IStorageRoot";
 import { BlobContainerTreeItem } from "./blobContainerNode";
 
@@ -20,11 +21,11 @@ export class BlobContainerGroupTreeItem extends AzureParentTreeItem<IStorageRoot
     public static contextValue: string = 'azureBlobContainerGroup';
     public contextValue: string = BlobContainerGroupTreeItem.contextValue;
     public iconPath: { light: string | Uri; dark: string | Uri } = {
-        light: path.join(resourcesPath, 'light', 'AzureBlobContainer.svg'),
-        dark: path.join(resourcesPath, 'dark', 'AzureBlobContainer.svg')
+        light: path.join(getResourcesPath(), 'light', 'AzureBlobContainer.svg'),
+        dark: path.join(getResourcesPath(), 'dark', 'AzureBlobContainer.svg')
     };
 
-    public async loadMoreChildrenImpl(clearCache: boolean): Promise<BlobContainerTreeItem[]> {
+    public async loadMoreChildrenImpl(clearCache: boolean): Promise<AzExtTreeItem[]> {
         if (clearCache) {
             this._continuationToken = undefined;
         }
@@ -33,9 +34,11 @@ export class BlobContainerGroupTreeItem extends AzureParentTreeItem<IStorageRoot
         let { entries, continuationToken } = containers;
         this._continuationToken = continuationToken;
 
-        return await Promise.all(entries.map(async (container: azureStorage.BlobService.ContainerResult) => {
+        const result: AzExtTreeItem[] = await Promise.all(entries.map(async (container: azureStorage.BlobService.ContainerResult) => {
             return await BlobContainerTreeItem.createBlobContainerTreeItem(this, container);
         }));
+
+        return result;
     }
 
     public hasMoreChildrenImpl(): boolean {
@@ -43,7 +46,7 @@ export class BlobContainerGroupTreeItem extends AzureParentTreeItem<IStorageRoot
     }
 
     // tslint:disable-next-line:promise-function-async // Grandfathered in
-    private listContainers(currentToken: azureStorage.common.ContinuationToken | undefined): Promise<azureStorage.BlobService.ListContainerResult> {
+    listContainers(currentToken: azureStorage.common.ContinuationToken | undefined): Promise<azureStorage.BlobService.ListContainerResult> {
         return new Promise((resolve, reject) => {
             let blobService = this.root.createBlobService();
             // currentToken argument typed incorrectly in SDK
@@ -57,15 +60,15 @@ export class BlobContainerGroupTreeItem extends AzureParentTreeItem<IStorageRoot
         });
     }
 
-    public async createChildImpl(showCreatingTreeItem: (label: string) => void): Promise<BlobContainerTreeItem> {
-        const containerName = await vscode.window.showInputBox({
+    public async createChildImpl(context: ICreateChildImplContext): Promise<BlobContainerTreeItem> {
+        const containerName = await ext.ui.showInputBox({
             placeHolder: 'Enter a name for the new blob container',
             validateInput: BlobContainerGroupTreeItem.validateContainerName
         });
 
         if (containerName) {
             return await vscode.window.withProgress({ location: vscode.ProgressLocation.Window }, async (progress) => {
-                showCreatingTreeItem(containerName);
+                context.showCreatingTreeItem(containerName);
                 progress.report({ message: `Azure Storage: Creating blob container '${containerName}'` });
                 const container = await this.createBlobContainer(containerName);
                 return await BlobContainerTreeItem.createBlobContainerTreeItem(this, container);

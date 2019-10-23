@@ -4,14 +4,15 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as azureStorage from "azure-storage";
-import * as clipboardy from 'clipboardy';
 import * as path from 'path';
-import { Uri, window } from 'vscode';
-import { AzureParentTreeItem, AzureTreeItem, DialogResponses, UserCancelledError } from 'vscode-azureextensionui';
-import { resourcesPath } from "../../constants";
+import { MessageItem, Uri, window } from 'vscode';
+import * as vscode from 'vscode';
+import { AzureParentTreeItem, AzureTreeItem, DialogResponses, IActionContext, UserCancelledError } from 'vscode-azureextensionui';
+import { getResourcesPath } from "../../constants";
 import { ext } from "../../extensionVariables";
 import { ICopyUrl } from '../../ICopyUrl';
 import { IStorageRoot } from "../IStorageRoot";
+import { IDirectoryDeleteContext } from "./directoryNode";
 import { deleteFile } from './fileUtils';
 
 export class FileTreeItem extends AzureTreeItem<IStorageRoot> implements ICopyUrl {
@@ -27,8 +28,8 @@ export class FileTreeItem extends AzureTreeItem<IStorageRoot> implements ICopyUr
     public static contextValue: string = 'azureFile';
     public contextValue: string = FileTreeItem.contextValue;
     public iconPath: { light: string | Uri; dark: string | Uri } = {
-        light: path.join(resourcesPath, 'light', 'document.svg'),
-        dark: path.join(resourcesPath, 'dark', 'document.svg')
+        light: path.join(getResourcesPath(), 'light', 'document.svg'),
+        dark: path.join(getResourcesPath(), 'dark', 'document.svg')
     };
 
     public commandId: string = 'azureStorage.editFile';
@@ -36,14 +37,20 @@ export class FileTreeItem extends AzureTreeItem<IStorageRoot> implements ICopyUr
     public async copyUrl(): Promise<void> {
         let fileService = this.root.createFileService();
         let url = fileService.getUrl(this.share.name, this.directoryPath, this.file.name);
-        await clipboardy.write(url);
+        await vscode.env.clipboard.writeText(url);
         ext.outputChannel.show();
         ext.outputChannel.appendLine(`File URL copied to clipboard: ${url}`);
     }
 
-    public async deleteTreeItemImpl(): Promise<void> {
-        const message: string = `Are you sure you want to delete the file '${this.label}'?`;
-        const result = await window.showWarningMessage(message, { modal: true }, DialogResponses.deleteResponse, DialogResponses.cancel);
+    public async deleteTreeItemImpl(context: IActionContext & IDirectoryDeleteContext): Promise<void> {
+        let result: MessageItem | undefined;
+        if (!context.suppressMessage) {
+            const message: string = `Are you sure you want to delete the file '${this.label}'?`;
+            result = await window.showWarningMessage(message, { modal: true }, DialogResponses.deleteResponse, DialogResponses.cancel);
+        } else {
+            result = DialogResponses.deleteResponse;
+        }
+
         if (result === DialogResponses.deleteResponse) {
             await deleteFile(this.directoryPath, this.file.name, this.share.name, this.root);
         } else {

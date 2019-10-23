@@ -6,9 +6,9 @@
 import * as azureStorage from "azure-storage";
 import * as path from 'path';
 import { ProgressLocation, Uri, window } from 'vscode';
-import { AzureParentTreeItem, UserCancelledError } from 'vscode-azureextensionui';
+import { AzureParentTreeItem, ICreateChildImplContext, UserCancelledError } from 'vscode-azureextensionui';
 import { nonNull } from "../../components/storageWrappers";
-import { resourcesPath } from "../../constants";
+import { getResourcesPath } from "../../constants";
 import { IStorageRoot } from "../IStorageRoot";
 import { TableTreeItem } from './tableNode';
 
@@ -20,8 +20,8 @@ export class TableGroupTreeItem extends AzureParentTreeItem<IStorageRoot> {
     public static contextValue: string = 'azureTableGroup';
     public contextValue: string = TableGroupTreeItem.contextValue;
     public iconPath: { light: string | Uri; dark: string | Uri } = {
-        light: path.join(resourcesPath, 'light', 'AzureTable.svg'),
-        dark: path.join(resourcesPath, 'dark', 'AzureTable.svg')
+        light: path.join(getResourcesPath(), 'light', 'AzureTable.svg'),
+        dark: path.join(getResourcesPath(), 'dark', 'AzureTable.svg')
     };
 
     async loadMoreChildrenImpl(clearCache: boolean): Promise<TableTreeItem[]> {
@@ -60,7 +60,7 @@ export class TableGroupTreeItem extends AzureParentTreeItem<IStorageRoot> {
         });
     }
 
-    public async createChildImpl(showCreatingTreeItem: (label: string) => void): Promise<TableTreeItem> {
+    public async createChildImpl(context: ICreateChildImplContext): Promise<TableTreeItem> {
         const tableName = await window.showInputBox({
             placeHolder: 'Enter a name for the new table',
             validateInput: TableGroupTreeItem.validateTableName
@@ -68,7 +68,7 @@ export class TableGroupTreeItem extends AzureParentTreeItem<IStorageRoot> {
 
         if (tableName) {
             return await window.withProgress({ location: ProgressLocation.Window }, async (progress) => {
-                showCreatingTreeItem(tableName);
+                context.showCreatingTreeItem(tableName);
                 progress.report({ message: `Azure Storage: Creating table '${tableName}'` });
                 const table = await this.createTable(tableName);
                 return new TableTreeItem(this, nonNull(table.TableName, "TableName"));

@@ -7,8 +7,9 @@ import * as azureStorage from "azure-storage";
 import { FileService } from 'azure-storage';
 import * as path from 'path';
 import { ProgressLocation, Uri, window } from 'vscode';
-import { AzureParentTreeItem, UserCancelledError } from 'vscode-azureextensionui';
-import { resourcesPath } from "../../constants";
+import { AzureParentTreeItem, ICreateChildImplContext, UserCancelledError } from 'vscode-azureextensionui';
+import { getResourcesPath } from "../../constants";
+import { ext } from "../../extensionVariables";
 import { IStorageRoot } from "../IStorageRoot";
 import { FileShareTreeItem } from './fileShareNode';
 
@@ -23,8 +24,8 @@ export class FileShareGroupTreeItem extends AzureParentTreeItem<IStorageRoot> {
     public static contextValue: string = 'azureFileShareGroup';
     public contextValue: string = FileShareGroupTreeItem.contextValue;
     public iconPath: { light: string | Uri; dark: string | Uri } = {
-        light: path.join(resourcesPath, 'light', 'AzureFileShare.svg'),
-        dark: path.join(resourcesPath, 'dark', 'AzureFileShare.svg')
+        light: path.join(getResourcesPath(), 'light', 'AzureFileShare.svg'),
+        dark: path.join(getResourcesPath(), 'dark', 'AzureFileShare.svg')
     };
 
     async loadMoreChildrenImpl(clearCache: boolean): Promise<FileShareTreeItem[]> {
@@ -62,14 +63,14 @@ export class FileShareGroupTreeItem extends AzureParentTreeItem<IStorageRoot> {
         });
     }
 
-    public async createChildImpl(showCreatingTreeItem: (label: string) => void): Promise<FileShareTreeItem> {
-        const shareName = await window.showInputBox({
+    public async createChildImpl(context: ICreateChildImplContext): Promise<FileShareTreeItem> {
+        const shareName = await ext.ui.showInputBox({
             placeHolder: 'Enter a name for the new file share',
             validateInput: FileShareGroupTreeItem.validateFileShareName
         });
 
         if (shareName) {
-            const quotaGB = await window.showInputBox({
+            const quotaGB = await ext.ui.showInputBox({
                 prompt: `Specify quota (in GB, between ${minQuotaGB} and ${maxQuotaGB}), to limit total storage size`,
                 value: maxQuotaGB.toString(),
                 validateInput: FileShareGroupTreeItem.validateQuota
@@ -77,7 +78,7 @@ export class FileShareGroupTreeItem extends AzureParentTreeItem<IStorageRoot> {
 
             if (quotaGB) {
                 return await window.withProgress({ location: ProgressLocation.Window }, async (progress) => {
-                    showCreatingTreeItem(shareName);
+                    context.showCreatingTreeItem(shareName);
                     progress.report({ message: `Azure Storage: Creating file share '${shareName}'` });
                     const share = await this.createFileShare(shareName, Number(quotaGB));
                     return new FileShareTreeItem(this, share);

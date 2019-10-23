@@ -3,15 +3,18 @@
  *  Licensed under the MIT License. See License.md in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as path from 'path';
+import { ext } from './extensionVariables';
 
 export const staticWebsiteContainerName = '$web';
 
 export enum configurationSettingsKeys {
     deployPath = 'deployPath',
-    preDeployTask = 'preDeployTask'
+    preDeployTask = 'preDeployTask',
+    enableViewInFileExplorer = 'enableViewInFileExplorer',
 }
 
 export const extensionPrefix: string = 'azureStorage';
 
-export const resourcesPath = path.join(__dirname, '..', 'resources');
+export function getResourcesPath(): string {
+    return ext.context.asAbsolutePath('resources');
+}

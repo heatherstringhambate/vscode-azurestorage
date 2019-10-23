@@ -9,10 +9,10 @@ import * as azureStorage from "azure-storage";
 import opn = require('opn');
 import * as path from 'path';
 import { commands, MessageItem, Uri, window } from 'vscode';
-import { AzureParentTreeItem, AzureTreeItem, createAzureClient, DialogResponses, ISubscriptionRoot, UserCancelledError } from 'vscode-azureextensionui';
+import { AzureParentTreeItem, AzureTreeItem, createAzureClient, DialogResponses, IActionContext, ISubscriptionContext, UserCancelledError } from 'vscode-azureextensionui';
 import { StorageAccountKey } from '../../../node_modules/azure-arm-storage/lib/models';
 import { StorageAccountKeyWrapper, StorageAccountWrapper } from '../../components/storageWrappers';
-import * as constants from "../../constants";
+import { getResourcesPath, staticWebsiteContainerName } from '../../constants';
 import { ext } from "../../extensionVariables";
 import { BlobContainerGroupTreeItem } from '../blobContainers/blobContainerGroupNode';
 import { BlobContainerTreeItem } from "../blobContainers/blobContainerNode";
@@ -38,8 +38,8 @@ type StorageTypes = 'Storage' | 'StorageV2' | 'BlobStorage';
 export class StorageAccountTreeItem extends AzureParentTreeItem<IStorageRoot> {
     public key: StorageAccountKeyWrapper;
     public iconPath: { light: string | Uri; dark: string | Uri } = {
-        light: path.join(constants.resourcesPath, 'light', 'AzureStorageAccount.svg'),
-        dark: path.join(constants.resourcesPath, 'dark', 'AzureStorageAccount.svg')
+        light: path.join(getResourcesPath(), 'light', 'AzureStorageAccount.svg'),
+        dark: path.join(getResourcesPath(), 'dark', 'AzureStorageAccount.svg')
     };
 
     private readonly _blobContainerGroupTreeItem: BlobContainerGroupTreeItem;
@@ -99,25 +99,28 @@ export class StorageAccountTreeItem extends AzureParentTreeItem<IStorageRoot> {
         return groupTreeItems;
     }
 
-    public pickTreeItemImpl(expectedContextValue: string): AzureTreeItem<IStorageRoot> | undefined {
-        switch (expectedContextValue) {
-            case BlobContainerGroupTreeItem.contextValue:
-            case BlobContainerTreeItem.contextValue:
-                return this._blobContainerGroupTreeItem;
-            case FileShareGroupTreeItem.contextValue:
-            case FileShareTreeItem.contextValue:
-            case DirectoryTreeItem.contextValue:
-            case FileTreeItem.contextValue:
-                return this._fileShareGroupTreeItem;
-            case QueueGroupTreeItem.contextValue:
-            case QueueTreeItem.contextValue:
-                return this._queueGroupTreeItem;
-            case TableGroupTreeItem.contextValue:
-            case TableTreeItem.contextValue:
-                return this._tableGroupTreeItem;
-            default:
-                return undefined;
+    public pickTreeItemImpl(expectedContextValues: (string | RegExp)[]): AzureTreeItem<IStorageRoot> | undefined {
+        for (const expectedContextValue of expectedContextValues) {
+            switch (expectedContextValue) {
+                case BlobContainerGroupTreeItem.contextValue:
+                case BlobContainerTreeItem.contextValue:
+                    return this._blobContainerGroupTreeItem;
+                case FileShareGroupTreeItem.contextValue:
+                case FileShareTreeItem.contextValue:
+                case DirectoryTreeItem.contextValue:
+                case FileTreeItem.contextValue:
+                    return this._fileShareGroupTreeItem;
+                case QueueGroupTreeItem.contextValue:
+                case QueueTreeItem.contextValue:
+                    return this._queueGroupTreeItem;
+                case TableGroupTreeItem.contextValue:
+                case TableTreeItem.contextValue:
+                    return this._tableGroupTreeItem;
+                default:
+            }
         }
+
+        return undefined;
     }
 
     hasMoreChildrenImpl(): boolean {
@@ -139,7 +142,8 @@ export class StorageAccountTreeItem extends AzureParentTreeItem<IStorageRoot> {
 
     public async deleteTreeItemImpl(): Promise<void> {
         const message: string = `Are you sure you want to delete account '${this.label}' and all its contents?`;
-        const result = await window.showWarningMessage(message, { modal: true }, DialogResponses.deleteResponse, DialogResponses.cancel);
+        //Use ext.ui to emulate user input by TestUserInput() method so that the tests can work
+        const result = await ext.ui.showWarningMessage(message, { modal: true }, DialogResponses.deleteResponse, DialogResponses.cancel);
         if (result === DialogResponses.deleteResponse) {
             let storageManagementClient = createAzureClient(this.root, StorageManagementClient);
             let parsedId = this.parseAzureResourceId(this.storageAccount.id);
@@ -150,21 +154,21 @@ export class StorageAccountTreeItem extends AzureParentTreeItem<IStorageRoot> {
         }
     }
 
-    private createRoot(subRoot: ISubscriptionRoot): IStorageRoot {
+    private createRoot(subRoot: ISubscriptionContext): IStorageRoot {
         return Object.assign({}, subRoot, {
             storageAccount: this.storageAccount,
             createBlobService: () => {
-                return azureStorage.createBlobService(this.storageAccount.name, this.key.value, this.storageAccount.primaryEndpoints.blob);
+                return azureStorage.createBlobService(this.storageAccount.name, this.key.value, this.storageAccount.primaryEndpoints.blob).withFilter(new azureStorage.ExponentialRetryPolicyFilter());
             },
             createFileService: () => {
-                return azureStorage.createFileService(this.storageAccount.name, this.key.value, this.storageAccount.primaryEndpoints.file);
+                return azureStorage.createFileService(this.storageAccount.name, this.key.value, this.storageAccount.primaryEndpoints.file).withFilter(new azureStorage.ExponentialRetryPolicyFilter());
             },
             createQueueService: () => {
-                return azureStorage.createQueueService(this.storageAccount.name, this.key.value, this.storageAccount.primaryEndpoints.queue);
+                return azureStorage.createQueueService(this.storageAccount.name, this.key.value, this.storageAccount.primaryEndpoints.queue).withFilter(new azureStorage.ExponentialRetryPolicyFilter());
             },
             createTableService: () => {
                 // tslint:disable-next-line:no-any the typings for createTableService are incorrect
-                return azureStorage.createTableService(this.storageAccount.name, this.key.value, <any>this.storageAccount.primaryEndpoints.table);
+                return azureStorage.createTableService(this.storageAccount.name, this.key.value, <any>this.storageAccount.primaryEndpoints.table).withFilter(new azureStorage.ExponentialRetryPolicyFilter());
             }
         });
     }
@@ -209,13 +213,13 @@ export class StorageAccountTreeItem extends AzureParentTreeItem<IStorageRoot> {
         return result;
     }
 
-    public async getWebsiteCapableContainer(): Promise<BlobContainerTreeItem | undefined> {
+    public async getWebsiteCapableContainer(context: IActionContext): Promise<BlobContainerTreeItem | undefined> {
         // Refresh the storage account first to make sure $web has been picked up if new
         await this.refresh();
 
         // Currently only the child with the name "$web" is supported for hosting websites
-        let id = `${this.id}/${this._blobContainerGroupTreeItem.id || this._blobContainerGroupTreeItem.label}/${constants.staticWebsiteContainerName}`;
-        let containerTreeItem = <BlobContainerTreeItem>await this.treeDataProvider.findTreeItem(id);
+        let id = `${this.id}/${this._blobContainerGroupTreeItem.id || this._blobContainerGroupTreeItem.label}/${staticWebsiteContainerName}`;
+        let containerTreeItem = <BlobContainerTreeItem>await this.treeDataProvider.findTreeItem(id, context);
         return containerTreeItem;
     }
 

@@ -6,8 +6,8 @@
 import * as azureStorage from "azure-storage";
 import * as path from 'path';
 import { ProgressLocation, Uri, window } from 'vscode';
-import { AzureParentTreeItem, UserCancelledError } from 'vscode-azureextensionui';
-import { resourcesPath } from "../../constants";
+import { AzureParentTreeItem, ICreateChildImplContext, UserCancelledError } from 'vscode-azureextensionui';
+import { getResourcesPath } from "../../constants";
 import { IStorageRoot } from "../IStorageRoot";
 import { QueueTreeItem } from './queueNode';
 
@@ -19,8 +19,8 @@ export class QueueGroupTreeItem extends AzureParentTreeItem<IStorageRoot> {
     public static contextValue: string = 'azureQueueGroup';
     public contextValue: string = QueueGroupTreeItem.contextValue;
     public iconPath: { light: string | Uri; dark: string | Uri } = {
-        light: path.join(resourcesPath, 'light', 'AzureQueue.svg'),
-        dark: path.join(resourcesPath, 'dark', 'AzureQueue.svg')
+        light: path.join(getResourcesPath(), 'light', 'AzureQueue.svg'),
+        dark: path.join(getResourcesPath(), 'dark', 'AzureQueue.svg')
     };
 
     async loadMoreChildrenImpl(clearCache: boolean): Promise<QueueTreeItem[]> {
@@ -59,7 +59,7 @@ export class QueueGroupTreeItem extends AzureParentTreeItem<IStorageRoot> {
         });
     }
 
-    public async createChildImpl(showCreatingTreeItem: (label: string) => void): Promise<QueueTreeItem> {
+    public async createChildImpl(context: ICreateChildImplContext): Promise<QueueTreeItem> {
         const queueName = await window.showInputBox({
             placeHolder: 'Enter a name for the new queue',
             validateInput: QueueGroupTreeItem.validateQueueName
@@ -67,7 +67,7 @@ export class QueueGroupTreeItem extends AzureParentTreeItem<IStorageRoot> {
 
         if (queueName) {
             return await window.withProgress({ location: ProgressLocation.Window }, async (progress) => {
-                showCreatingTreeItem(queueName);
+                context.showCreatingTreeItem(queueName);
                 progress.report({ message: `Azure Storage: Creating queue '${queueName}'` });
                 const share = await this.createQueue(queueName);
                 return new QueueTreeItem(this, share);

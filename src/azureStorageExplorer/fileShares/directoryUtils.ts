@@ -6,23 +6,24 @@
 import * as azureStorage from "azure-storage";
 import * as path from "path";
 import { ProgressLocation, window } from "vscode";
-import { AzureParentTreeItem, UserCancelledError } from "vscode-azureextensionui";
+import { AzureParentTreeItem, ICreateChildImplContext, UserCancelledError } from "vscode-azureextensionui";
 import { ext } from "../../extensionVariables";
 import { IStorageRoot } from "../IStorageRoot";
 import { DirectoryTreeItem } from "./directoryNode";
+import { IFileShareCreateChildContext } from "./fileShareNode";
 import { deleteFile } from "./fileUtils";
 import { validateDirectoryName } from "./validateNames";
 
 // Supports both file share and directory parents
-export async function askAndCreateChildDirectory(parent: AzureParentTreeItem<IStorageRoot>, parentPath: string, share: azureStorage.FileService.ShareResult, showCreatingTreeItem: (label: string) => void): Promise<DirectoryTreeItem> {
-    const dirName = await window.showInputBox({
+export async function askAndCreateChildDirectory(parent: AzureParentTreeItem<IStorageRoot>, parentPath: string, share: azureStorage.FileService.ShareResult, context: ICreateChildImplContext & IFileShareCreateChildContext): Promise<DirectoryTreeItem> {
+    const dirName = context.childName || await window.showInputBox({
         placeHolder: 'Enter a name for the new directory',
         validateInput: validateDirectoryName
     });
 
     if (dirName) {
         return await window.withProgress({ location: ProgressLocation.Window }, async (progress) => {
-            showCreatingTreeItem(dirName);
+            context.showCreatingTreeItem(dirName);
             progress.report({ message: `Azure Storage: Creating directory '${path.posix.join(parentPath, dirName)}'` });
             let dir = await createDirectory(share, parent.root, parentPath, dirName);
 
@@ -38,10 +39,10 @@ export async function askAndCreateChildDirectory(parent: AzureParentTreeItem<ISt
 }
 
 // tslint:disable-next-line:promise-function-async // Grandfathered in
-function createDirectory(share: azureStorage.FileService.ShareResult, root: IStorageRoot, parentPath: string, name: string): Promise<azureStorage.BlobService.BlobResult> {
+export function createDirectory(share: azureStorage.FileService.ShareResult, root: IStorageRoot, parentPath: string, name: string): Promise<azureStorage.FileService.DirectoryResult> {
     return new Promise((resolve, reject) => {
         const fileService = root.createFileService();
-        fileService.createDirectory(share.name, path.posix.join(parentPath, name), (err: Error, result: azureStorage.BlobService.BlobResult) => {
+        fileService.createDirectory(share.name, path.posix.join(parentPath, name), (err: Error, result: azureStorage.FileService.DirectoryResult) => {
             // tslint:disable-next-line:strict-boolean-expressions // SDK is not strict-null-checking enabled, can't type err as optional
             if (err) {
                 reject(err);
